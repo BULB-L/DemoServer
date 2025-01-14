@@ -1,0 +1,9 @@
+*.out
+sql/
+.venv
+*.log
+*.pyc
+__pycache__/
+
+MigrateDatabase.py
+DropAllTables.py

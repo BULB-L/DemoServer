@@ -422,3 +422,57 @@ def get_project_near_txns(account: str):
     cur.close()
 
     return summary_dict
+
+# get the report of the project
+@app.get("/project/github_report")
+def get_github_report(account: str):
+    try:
+        cur = CONN.cursor()
+        cur.execute("""
+            SELECT report from projectreport
+            WHERE project_wallet_address = %s
+            """, (account,))
+        project_report = cur.fetchone()
+
+        project_report = project_report[0]
+        project_report = json.loads(project_report)
+
+        if project_report is None:
+            return {'project_report': 'the project has no report'}
+
+        return project_report
+        
+    except pg.OperationalError as e:
+        global CONN
+        CONN = pg.connect(
+            host="ls-8598f5e3b856b24e455508ee2c5a79fd219ed693.cnqgcgguumqr.ap-northeast-2.rds.amazonaws.com",
+            port= 5432,
+            database= 'dead_project_snipper',
+            user= 'dbmasteruser',
+            password= 'BG.7.U>p(6&F3B]*c.*qBWw6Jp`J~~nU',
+        )
+
+        cur = CONN.cursor()
+        cur.execute("""
+            SELECT report from projectreport
+            WHERE project_wallet_address = %s
+            """, (account,))
+        project_report = cur.fetchone()
+
+        if project_report is None:
+            return {'project_report': 'the project has no report'}
+        
+    finally:
+        cur.close()
+
+@app.get("/project/{account}/tweets_report")
+def get_tweets_report(account: str):
+    pass
+
+@app.get("/project/{account}/near_txns_report")
+def get_near_txns_report(account: str):
+    pass
+
+@app.get("/project/{account}/overall_report")
+def get_overall_report(account: str):
+    pass

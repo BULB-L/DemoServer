@@ -522,7 +522,7 @@ def get_github_report(account: str):
     if project_report is None:
         return {'project_report': 'the project has no report'}
 
-    project_report = project_report[0]['github_activity_report'][0]
+    project_report = project_report['github_activity_report'][0]
     # project_report = json.loads(project_report)
 
     cur.close()

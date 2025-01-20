@@ -3,18 +3,22 @@ import os
 import json
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
+from dotenv import load_dotenv
 import pandas as pd
 import numpy as np
 
 
+
 # 데이터베이스 연결
 
+load_dotenv()
+
 CONN = pg.connect(
-    host="ls-8598f5e3b856b24e455508ee2c5a79fd219ed693.cnqgcgguumqr.ap-northeast-2.rds.amazonaws.com",
-    port= 5432,
-    database= 'dead_project_snipper',
-    user= 'dbmasteruser',
-    password= 'BG.7.U>p(6&F3B]*c.*qBWw6Jp`J~~nU',
+    host=os.getenv('DB_HOST'), 
+    port=os.getenv('DB_PORT'), 
+    database=os.getenv('DB_NAME'),
+    user=os.getenv('DB_USER'),
+    password=os.getenv('DB_PASSWORD'),
 )
 
 
@@ -444,12 +448,13 @@ def get_github_report(account: str):
         
     except pg.OperationalError as e:
         global CONN
+                
         CONN = pg.connect(
-            host="ls-8598f5e3b856b24e455508ee2c5a79fd219ed693.cnqgcgguumqr.ap-northeast-2.rds.amazonaws.com",
-            port= 5432,
-            database= 'dead_project_snipper',
-            user= 'dbmasteruser',
-            password= 'BG.7.U>p(6&F3B]*c.*qBWw6Jp`J~~nU',
+            host=os.getenv('DB_HOST'), 
+            port=os.getenv('DB_PORT'), 
+            database=os.getenv('DB_NAME'),
+            user=os.getenv('DB_USER'),
+            password=os.getenv('DB_PASSWORD'),
         )
 
         cur = CONN.cursor()

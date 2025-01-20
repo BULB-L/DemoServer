@@ -7,3 +7,6 @@ __pycache__/
 
 MigrateDatabase.py
 DropAllTables.py
+
+.env
+.dockerignore

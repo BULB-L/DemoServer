@@ -1,3 +1,4 @@
+from functools import wraps
 import psycopg2 as pg
 import os
 import json
@@ -21,6 +22,67 @@ CONN = pg.connect(
     password=os.getenv('DB_PASSWORD'),
 )
 
+def ensure_db_connection(func):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        global CONN
+        
+        def test_connection():
+            try:
+                # Try a lightweight query to test the connection
+                # Use a short timeout to avoid hanging
+                CONN.set_session(readonly=True)
+                cur = CONN.cursor()
+                cur.execute('SELECT 1')
+                cur.fetchone()
+                CONN.set_session(readonly=False)
+                cur.close()
+                return True
+            except Exception:
+                return False
+                
+        try:
+            # First check if connection exists and appears healthy
+            if CONN and test_connection():
+                return func(*args, **kwargs)
+                
+            # If we get here, connection is dead or partially alive
+            # Close it properly before reconnecting
+            if CONN:
+                try:
+                    CONN.close()
+                except Exception:
+                    pass  # Ignore errors during close
+                    
+            # Create new connection
+            CONN = pg.connect(
+                host=os.getenv('DB_HOST'),
+                port=os.getenv('DB_PORT'),
+                database=os.getenv('DB_NAME'),
+                user=os.getenv('DB_USER'),
+                password=os.getenv('DB_PASSWORD'),
+            )
+            return func(*args, **kwargs)
+            
+        except (pg.OperationalError, pg.InterfaceError):
+            # If we still can't connect, try one more time
+            if CONN:
+                try:
+                    CONN.close()
+                except Exception:
+                    pass
+                    
+            CONN = pg.connect(
+                host=os.getenv('DB_HOST'),
+                port=os.getenv('DB_PORT'),
+                database=os.getenv('DB_NAME'),
+                user=os.getenv('DB_USER'),
+                password=os.getenv('DB_PASSWORD'),
+            )
+            return func(*args, **kwargs)
+            
+    return wrapper
+
 
 # FastAPI 애플리케이션 생성 port : 
 app = FastAPI()
@@ -31,6 +93,7 @@ def read_root():
     return {"message": "Hello, FastAPI!"}
 
 @app.get("/projects_list")
+@ensure_db_connection
 def get_projects_list():
     cur = CONN.cursor()
     cur.execute("""
@@ -43,6 +106,7 @@ def get_projects_list():
     return {'projects_list': [project[0] for project in projects]}
 
 @app.get("/project/github_summary")
+@ensure_db_connection
 def get_project_github_summary(project_wallet_address: str):
 
     print(project_wallet_address)
@@ -69,6 +133,7 @@ def get_project_github_summary(project_wallet_address: str):
     return summary_dict
 
 @app.get("/project/all_github_repos_summary")
+@ensure_db_connection
 def get_all_github_repos_summary():
 
     cur = CONN.cursor()
@@ -89,6 +154,7 @@ def get_all_github_repos_summary():
 
 
 @app.get("/project/commits_histo")
+@ensure_db_connection
 def get_project_commits_histo():
 
     cur = CONN.cursor()
@@ -122,6 +188,7 @@ def get_project_commits_histo():
     return summary_dict
 
 @app.get("/project/tweets_summary")
+@ensure_db_connection
 def get_project_tweets_summary(project_wallet_address: str):
 
     cur = CONN.cursor()
@@ -144,6 +211,7 @@ def get_project_tweets_summary(project_wallet_address: str):
     return summary_dict
 
 @app.get("/project/all_tweets_summary")
+@ensure_db_connection
 def get_all_tweets_summary():
 
     cur = CONN.cursor()
@@ -163,6 +231,7 @@ def get_all_tweets_summary():
     return summary_dict
 
 @app.get("/project/tweets_histo")
+@ensure_db_connection
 def get_project_tweets_histo():
 
     cur = CONN.cursor()
@@ -218,6 +287,7 @@ def get_project_tweets_histo():
 
 
 @app.get("/project/near_txns_summary")
+@ensure_db_connection
 def get_project_near_txns_summary(project_wallet_address: str):
 
     cur = CONN.cursor()
@@ -241,6 +311,7 @@ def get_project_near_txns_summary(project_wallet_address: str):
     
 
 @app.get("/project/all_near_txns_summary")
+@ensure_db_connection
 def get_all_near_txns_summary():
 
     cur = CONN.cursor()
@@ -260,6 +331,7 @@ def get_all_near_txns_summary():
     return summary_dict
 
 @app.get("/project/near_txns_histo")
+@ensure_db_connection
 def get_project_near_txns_histo():
 
     cur = CONN.cursor()
@@ -331,6 +403,7 @@ def get_project_near_txns_histo():
     return summary_dict
 
 @app.get("/project/{account}/githubrepos")
+@ensure_db_connection
 def get_project_github_repos(account: str):
     cur = CONN.cursor()
     cur.execute("""
@@ -362,6 +435,7 @@ def get_project_github_repos(account: str):
 
 
 @app.get("/project/{account}/tweets")
+@ensure_db_connection
 def get_project_tweets(account: str):
     cur = CONN.cursor()
     cur.execute("""
@@ -392,6 +466,7 @@ def get_project_tweets(account: str):
     return summary_dict
 
 @app.get("/project/{account}/near_txns")
+@ensure_db_connection
 def get_project_near_txns(account: str):
     cur = CONN.cursor()
     cur.execute("""
@@ -429,55 +504,101 @@ def get_project_near_txns(account: str):
 
 # get the report of the project
 @app.get("/project/github_report")
+@ensure_db_connection
 def get_github_report(account: str):
-    try:
-        cur = CONN.cursor()
-        cur.execute("""
-            SELECT report from projectreport
-            WHERE project_wallet_address = %s
-            """, (account,))
-        project_report = cur.fetchone()
+    cur = CONN.cursor()
+    cur.execute("""
+        SELECT report from projectreport
+        WHERE project_wallet_address = %s
+        """, (account,))
+    project_report = cur.fetchone()[0]
 
-        project_report = project_report[0]
-        project_report = json.loads(project_report)
+    if project_report['has_github'][0] == False:
+        return {'project_report': 'the project has no github report'}
+    
+    if project_report['github_activity_report'] is None:
+        return {'project_report': 'the project has no report'}
+    
+    if project_report is None:
+        return {'project_report': 'the project has no report'}
 
-        if project_report is None:
-            return {'project_report': 'the project has no report'}
+    project_report = project_report[0]['github_activity_report'][0]
+    # project_report = json.loads(project_report)
 
-        return project_report
-        
-    except pg.OperationalError as e:
-        global CONN
-                
-        CONN = pg.connect(
-            host=os.getenv('DB_HOST'), 
-            port=os.getenv('DB_PORT'), 
-            database=os.getenv('DB_NAME'),
-            user=os.getenv('DB_USER'),
-            password=os.getenv('DB_PASSWORD'),
-        )
+    cur.close()
 
-        cur = CONN.cursor()
-        cur.execute("""
-            SELECT report from projectreport
-            WHERE project_wallet_address = %s
-            """, (account,))
-        project_report = cur.fetchone()
 
-        if project_report is None:
-            return {'project_report': 'the project has no report'}
-        
-    finally:
-        cur.close()
-
-@app.get("/project/{account}/tweets_report")
+    return JSONResponse(content=project_report)
+    
+@app.get("/project/tweets_report")
+@ensure_db_connection
 def get_tweets_report(account: str):
-    pass
+    cur = CONN.cursor()
 
-@app.get("/project/{account}/near_txns_report")
+    cur.execute("""
+        SELECT report from projectreport
+        WHERE project_wallet_address = %s
+        """, (account,))
+    project_report = cur.fetchone()[0]
+
+    if project_report['has_twitter'][0] == False:
+        return {'project_report': 'the project has no tweets report'}
+    
+    if project_report['twitter_activity_report'] is None:
+        return {'project_report': 'the project has no report'}
+    
+    if project_report is None:
+        return {'project_report': 'the project has no report'}
+    
+    project_report = project_report['twitter_activity_report'][0]
+
+    cur.close()
+
+    return JSONResponse(content=project_report)
+    
+@app.get("/project/near_txns_report")
+@ensure_db_connection
 def get_near_txns_report(account: str):
-    pass
+    cur = CONN.cursor()
 
-@app.get("/project/{account}/overall_report")
+    cur.execute("""
+        SELECT report from projectreport
+        WHERE project_wallet_address = %s
+        """, (account,))
+    project_report = cur.fetchone()[0]
+
+    if project_report['has_near_txns'][0] == False:
+        return {'project_report': 'the project has no near txns report'}
+    
+    if project_report['near_txns_activity_report'] is None:
+        return {'project_report': 'the project has no report'}
+    
+    if project_report is None:
+        return {'project_report': 'the project has no report'}
+    
+    project_report = project_report['near_txns_activity_report'][0]
+
+    cur.close()
+
+    return JSONResponse(content=project_report)
+
+@app.get("/project/overall_report")
+@ensure_db_connection
 def get_overall_report(account: str):
-    pass
+    cur = CONN.cursor()
+
+    cur.execute("""
+        SELECT report from projectreport
+        WHERE project_wallet_address = %s
+        """, (account,))
+    
+    project_report = cur.fetchone()[0]
+
+    project_report = project_report['overall_report']
+
+    cur.close()
+
+    if project_report is None:
+        return {'project_report': 'the project has no report'}
+    
+    return JSONResponse(content=project_report)

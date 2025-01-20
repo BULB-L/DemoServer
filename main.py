@@ -511,7 +511,12 @@ def get_github_report(account: str):
         SELECT report from projectreport
         WHERE project_wallet_address = %s
         """, (account,))
-    project_report = cur.fetchone()[0]
+    project_report = cur.fetchone()
+
+    if project_report is None:
+        return {'project_report': 'the project has no report'}
+    
+    project_report = project_report[0]
 
     if project_report['has_github'][0] == False:
         return {'project_report': 'the project has no github report'}
@@ -539,7 +544,12 @@ def get_tweets_report(account: str):
         SELECT report from projectreport
         WHERE project_wallet_address = %s
         """, (account,))
-    project_report = cur.fetchone()[0]
+    project_report = cur.fetchone()
+
+    if project_report is None:
+        return {'project_report': 'the project has no report'}
+    
+    project_report = project_report[0]
 
     if project_report['has_twitter'][0] == False:
         return {'project_report': 'the project has no tweets report'}
@@ -565,7 +575,12 @@ def get_near_txns_report(account: str):
         SELECT report from projectreport
         WHERE project_wallet_address = %s
         """, (account,))
-    project_report = cur.fetchone()[0]
+    project_report = cur.fetchone()
+
+    if project_report is None:
+        return {'project_report': 'the project has no report'}
+    
+    project_report = project_report[0]
 
     if project_report['has_near_txns'][0] == False:
         return {'project_report': 'the project has no near txns report'}
@@ -592,7 +607,12 @@ def get_overall_report(account: str):
         WHERE project_wallet_address = %s
         """, (account,))
     
-    project_report = cur.fetchone()[0]
+    project_report = cur.fetchone()
+
+    if project_report is None:
+        return {'project_report': 'the project has no report'}
+    
+    project_report = project_report[0]
 
     project_report = project_report['overall_report']
 

@@ -12,3 +12,7 @@ DropAllTables.py
 .dockerignore
 *.json
 *.sh
+
+test/
+test_all_project_list.py
+.pytest_cache/

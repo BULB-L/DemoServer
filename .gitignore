@@ -15,4 +15,9 @@ DropAllTables.py
 
 test/
 test_all_project_list.py
+test_issue_2025_01_27.py
+2025-01-27-test.xml
+*test*
 .pytest_cache/
+
+log/

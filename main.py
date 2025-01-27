@@ -7,6 +7,7 @@ from fastapi.responses import JSONResponse
 from dotenv import load_dotenv
 import pandas as pd
 import numpy as np
+from decimal import Decimal
 
 
 
@@ -21,6 +22,12 @@ CONN = pg.connect(
     user=os.getenv('DB_USER'),
     password=os.getenv('DB_PASSWORD'),
 )
+
+
+def decimal_to_float(value):
+    if isinstance(value, Decimal):
+        return float(value)
+    return value
 
 def ensure_db_connection(func):
     @wraps(func)
@@ -105,6 +112,170 @@ def get_projects_list():
 
     return {'projects_list': [project[0] for project in projects]}
 
+@app.get("/project_info")
+@ensure_db_connection
+def get_project_info(project_wallet_address: str):
+    cur = CONN.cursor()
+    cur.execute("""
+        SELECT 
+            project_potlock_url,
+            project_official_website_url,
+            created_date
+         FROM projects
+        WHERE project_wallet_address = %s
+        """, (project_wallet_address,))
+    project_info = cur.fetchone()
+
+    if project_info is None:
+        return {'project_info': 'the project does not exist'}
+    
+    keys = [desc[0] for desc in cur.description]
+    project_info = [project for project in project_info]
+    project_info_dict = dict(zip(keys, project_info))
+    project_info_dict['created_date'] = project_info_dict['created_date'].strftime('%Y.%m.%d')
+    cur.close()
+    
+    
+
+    project_info = dict(zip(keys, project_info))
+    
+    return JSONResponse(project_info_dict)
+
+
+@app.get("/project_rank")
+@ensure_db_connection
+def get_project_rank():
+    cur = CONN.cursor()
+    cur.execute("""
+        SELECT 
+            project_wallet_address,
+            created_date
+        FROM projectreport
+        order by score desc
+        limit 3
+        """
+        )
+    project_rank = cur.fetchall()
+    print(project_rank)
+
+    project_rank = [(project[0], project[1].strftime('%Y.%m.%d')) for project in project_rank]
+    print(project_rank)
+    cur.close()
+
+    return JSONResponse({'project_rank': project_rank})
+
+
+@app.get("/project_survival_rate")
+@ensure_db_connection
+def get_project_survival_rate():
+    cur = CONN.cursor()
+    cur.execute("""
+        SELECT 
+            active_or_inactive
+        FROM projectreport
+        where most_recent = true
+        """
+        )
+
+    project_survival_list = cur.fetchall()
+    project_survival_list = [project[0] for project in project_survival_list]
+
+    active_count = project_survival_list.count(True)
+    project_survival_rate = active_count / len(project_survival_list)
+
+    return JSONResponse({'project_survival_rate': project_survival_rate})
+
+@app.get("/project/score")
+@ensure_db_connection
+def get_project_score(project_wallet_address: str):
+    cur = CONN.cursor()
+    cur.execute("""
+        SELECT 
+            score
+        FROM projectreport
+        WHERE project_wallet_address = %s
+        """, (project_wallet_address,))
+    project_score = cur.fetchone()
+    cur.close()
+
+    if project_score is None:
+        return {'project_score': 'the project does not exist'}
+
+    return JSONResponse({'project_score': project_score[0]})
+
+@app.get("/project/github_statistic")
+@ensure_db_connection
+def get_project_github_statistic(project_wallet_address: str):
+    cur = CONN.cursor()
+    cur.execute("""
+    WITH ranked_data AS (
+        SELECT 
+            monthly_total_commit_lines,
+            monthly_avg_commit_lines,
+            PERCENT_RANK() OVER (ORDER BY monthly_total_commit_lines) AS monthly_total_commit_lines_percentile,
+            PERCENT_RANK() OVER (ORDER BY monthly_avg_commit_lines) AS monthly_avg_commit_lines_percentile,
+            MAX(monthly_total_commit_lines) OVER () AS max_monthly_total_commit_lines,
+            MAX(monthly_avg_commit_lines) OVER () AS max_monthly_avg_commit_lines,
+            project_wallet_address
+        FROM 
+            githubreposmonthlysummary
+    )
+    SELECT 
+        monthly_total_commit_lines,
+        monthly_avg_commit_lines,
+        monthly_total_commit_lines_percentile,
+        monthly_avg_commit_lines_percentile,
+        max_monthly_total_commit_lines,
+        max_monthly_avg_commit_lines
+    FROM 
+        ranked_data
+    WHERE 
+        project_wallet_address = %s;
+
+        """, (project_wallet_address,))
+    project_github_statistic = cur.fetchone()
+
+        
+    if project_github_statistic is None:
+        return {'project_github_statistic': 'the project has no github repos'}
+
+
+    keys = [desc[0] for desc in cur.description]
+    project_github_statistic = dict(zip(keys, project_github_statistic))
+
+    
+
+    # get the all repo statistic
+    cur.execute("""
+        SELECT
+            avg_total_commit_lines,
+            avg_commit_lines
+        FROM githuballreposmonthlysummary
+    """)
+
+    all_repo_statistic = cur.fetchone()
+
+    if all_repo_statistic is None:
+        return {'project_github_statistic': 'the project has no github repos'}
+
+    all_repo_statistic_keys = [desc[0] for desc in cur.description] 
+    all_repo_statistic = dict(zip(all_repo_statistic_keys, all_repo_statistic))
+
+
+
+    intergrated_statistic = {
+        'project': project_github_statistic,
+        'all_repo': all_repo_statistic
+    }
+
+    print(intergrated_statistic)
+
+    cur.close()
+
+
+    return JSONResponse(intergrated_statistic)
+
+
 @app.get("/project/github_summary")
 @ensure_db_connection
 def get_project_github_summary(project_wallet_address: str):
@@ -186,6 +357,90 @@ def get_project_commits_histo():
     cur.close()
 
     return summary_dict
+
+
+@app.get("/project/tweets_statistic")
+@ensure_db_connection
+def get_project_tweets_statistic(project_wallet_address: str):
+    cur = CONN.cursor()
+    cur.execute("""
+       WITH ranked_data AS (
+    SELECT 
+        monthly_tweet_count,
+        monthly_avg_tweet_likes_count,
+        monthly_avg_tweet_retweet_count,
+        monthly_avg_tweet_reply_count,
+        monthly_avg_tweet_watch_count,
+        PERCENT_RANK() OVER (ORDER BY monthly_tweet_count) AS overall_tweet_count_percentile,
+        PERCENT_RANK() OVER (ORDER BY monthly_avg_tweet_likes_count) AS overall_likes_percentile,
+        PERCENT_RANK() OVER (ORDER BY monthly_avg_tweet_retweet_count) AS overall_retweet_percentile,
+        PERCENT_RANK() OVER (ORDER BY monthly_avg_tweet_reply_count) AS overall_reply_percentile,
+        PERCENT_RANK() OVER (ORDER BY monthly_avg_tweet_watch_count) AS overall_watch_percentile,
+        MAX(monthly_tweet_count) OVER () AS max_monthly_tweet_count,
+        MAX(monthly_avg_tweet_likes_count) OVER () AS max_monthly_avg_likes_count,
+        MAX(monthly_avg_tweet_retweet_count) OVER () AS max_monthly_avg_retweet_count,
+        MAX(monthly_avg_tweet_reply_count) OVER () AS max_monthly_avg_reply_count,
+        MAX(monthly_avg_tweet_watch_count) OVER () AS max_monthly_avg_watch_count,
+        project_wallet_address
+    FROM 
+        xhandlemonthlysummary
+)
+SELECT 
+    monthly_tweet_count,
+    monthly_avg_tweet_likes_count,
+    monthly_avg_tweet_retweet_count,
+    monthly_avg_tweet_reply_count,
+    monthly_avg_tweet_watch_count,
+    overall_tweet_count_percentile AS monthly_tweet_count_percentile,
+    overall_likes_percentile AS monthly_avg_tweet_likes_count_percentile,
+    overall_retweet_percentile AS monthly_avg_tweet_retweet_count_percentile,
+    overall_reply_percentile AS monthly_avg_tweet_reply_count_percentile,
+    overall_watch_percentile AS monthly_avg_tweet_watch_count_percentile,
+    max_monthly_tweet_count,
+    max_monthly_avg_likes_count,
+    max_monthly_avg_retweet_count,
+    max_monthly_avg_reply_count,
+    max_monthly_avg_watch_count
+FROM 
+    ranked_data
+WHERE 
+    project_wallet_address = %s;
+
+        """, (project_wallet_address,))
+    project_tweets_statistic = cur.fetchone()
+
+    if project_tweets_statistic is None:
+        return {'project_tweets_statistic': 'the project has no tweets'}
+
+    keys = [desc[0] for desc in cur.description]
+    project_tweets_statistic = dict(zip(keys, project_tweets_statistic))
+
+    # get the all repo statistic
+    cur.execute("""
+        SELECT
+            avg_tweet_count,
+            avg_tweet_likes,
+            avg_tweet_retweet,
+            avg_tweet_replies,
+            avg_tweet_watches
+        FROM xhandleallmonthlysummary
+    """)
+
+    all_tweet_statistic = cur.fetchone()
+
+    if all_tweet_statistic is None:
+        return {'project_tweets_statistic': 'the project has no tweets'}
+    all_tweet_statistic_keys = [desc[0] for desc in cur.description] 
+    all_tweet_statistic = dict(zip(all_tweet_statistic_keys, all_tweet_statistic))
+
+    intergrated_statistic = {
+        'project': project_tweets_statistic,
+        'all_handles': all_tweet_statistic
+    }
+
+    cur.close()
+
+    return JSONResponse(intergrated_statistic)
 
 @app.get("/project/tweets_summary")
 @ensure_db_connection
@@ -285,6 +540,92 @@ def get_project_tweets_histo():
 
     return summary_dict
 
+@app.get("/project/near_txns_statistic")
+@ensure_db_connection
+def get_project_near_txns_statistic(project_wallet_address: str):
+    cur = CONN.cursor()
+    cur.execute("""
+    WITH ranked_data AS (
+        SELECT 
+            total_inbound_transactions as monthly_total_inbound_transactions,
+            total_outbound_transactions as monthly_total_outbound_transactions,
+            avg_inbound_transaction_fee as monthly_avg_inbound_transaction_fee,
+            avg_outbound_transaction_fee as monthly_avg_outbound_transaction_fee,
+            -- Percentile calculations
+            PERCENT_RANK() OVER (ORDER BY total_inbound_transactions) AS monthly_total_inbound_transactions_percentile,
+            PERCENT_RANK() OVER (ORDER BY total_outbound_transactions) AS monthly_total_outbound_transactions_percentile,
+            PERCENT_RANK() OVER (ORDER BY avg_inbound_transaction_fee) AS monthly_avg_inbound_transaction_fee_percentile,
+            PERCENT_RANK() OVER (ORDER BY avg_outbound_transaction_fee) AS monthly_avg_outbound_transaction_fee_percentile,
+            -- Maximum value calculations
+            MAX(total_inbound_transactions) OVER () AS max_monthly_total_inbound_transactions,
+            MAX(total_outbound_transactions) OVER () AS max_monthly_total_outbound_transactions,
+            MAX(avg_inbound_transaction_fee) OVER () AS max_monthly_avg_inbound_transaction_fee,
+            MAX(avg_outbound_transaction_fee) OVER () AS max_monthly_avg_outbound_transaction_fee,
+            project_wallet_address
+        FROM 
+            wallettxnsmonthlysummary
+    )
+    SELECT 
+        monthly_total_inbound_transactions,
+        monthly_total_outbound_transactions,
+        monthly_avg_inbound_transaction_fee,
+        monthly_avg_outbound_transaction_fee,
+        -- Percentiles
+        monthly_total_inbound_transactions_percentile,
+        monthly_total_outbound_transactions_percentile,
+        monthly_avg_inbound_transaction_fee_percentile,
+        monthly_avg_outbound_transaction_fee_percentile,
+        -- Maximums
+        max_monthly_total_inbound_transactions,
+        max_monthly_total_outbound_transactions,
+        max_monthly_avg_inbound_transaction_fee,
+        max_monthly_avg_outbound_transaction_fee
+    FROM 
+        ranked_data
+    WHERE 
+        project_wallet_address = %s;
+
+        """, (project_wallet_address,))
+    project_near_txns_statistic = cur.fetchone()
+
+    if project_near_txns_statistic is None:
+        return {'project_near_txns_statistic': 'the project has no near txns'}
+
+
+    keys = [desc[0] for desc in cur.description]
+    project_near_txns_statistic = dict(zip(keys, project_near_txns_statistic))
+
+    # get the all repo statistic
+    cur.execute("""
+    SELECT 
+        AVG(total_inbound_transactions) AS avg_total_inbound_transactions,
+        AVG(total_outbound_transactions) AS avg_total_outbound_transactions,
+        AVG(avg_inbound_transaction_fee) AS all_avg_inbound_transaction_fee,
+        AVG(avg_outbound_transaction_fee) AS all_avg_outbound_transaction_fee
+    FROM 
+        wallettxnsmonthlysummary;
+
+    """)
+
+    all_near_txns_statistic = cur.fetchone()
+
+    if all_near_txns_statistic is None:
+        return {'project_near_txns_statistic': 'the project has no near txns'}
+
+    all_near_txns_statistic_keys = [desc[0] for desc in cur.description] 
+    all_near_txns_statistic = dict(zip(all_near_txns_statistic_keys, all_near_txns_statistic))
+
+    cur.close()
+    # Convert any Decimal values to float
+    all_near_txns_statistic = {k: decimal_to_float(v) for k, v in all_near_txns_statistic.items()}
+    project_near_txns_statistic = {k: decimal_to_float(v) for k, v in project_near_txns_statistic.items()}
+
+    intergrated_statistic = {
+        'project': project_near_txns_statistic,
+        'all_near_txns': all_near_txns_statistic
+    }
+
+    return JSONResponse(intergrated_statistic)
 
 @app.get("/project/near_txns_summary")
 @ensure_db_connection

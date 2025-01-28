@@ -4,6 +4,8 @@ import os
 import json
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
+
 from dotenv import load_dotenv
 import pandas as pd
 import numpy as np
@@ -93,6 +95,14 @@ def ensure_db_connection(func):
 
 # FastAPI 애플리케이션 생성 port : 
 app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # 모든 도메인 허용
+    allow_credentials=True,  # 인증 정보 포함 허용 (예: 쿠키)
+    allow_methods=["*"],  # 모든 HTTP 메서드 허용
+    allow_headers=["*"],  # 모든 HTTP 헤더 허용
+)
 
 # 루트 엔드포인트 정의
 @app.get("/")

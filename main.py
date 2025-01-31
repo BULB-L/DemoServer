@@ -137,15 +137,14 @@ def get_project_info(project_wallet_address: str):
     project_info = cur.fetchone()
 
     if project_info is None:
-        return {'project_info': 'the project does not exist'}
-    
+        return JSONResponse({'project_info': 'the project does not exist'}, status_code=404)
     keys = [desc[0] for desc in cur.description]
     project_info = [project for project in project_info]
-    project_info_dict = dict(zip(keys, project_info))
-    project_info_dict['created_date'] = project_info_dict['created_date'].strftime('%Y.%m.%d')
+    project_info_dict = {
+        'links' : [project_info[0], project_info[1]],
+        'created_date' : project_info[2].strftime('%Y.%m.%d')
+    }
     cur.close()
-    
-    
 
     project_info = dict(zip(keys, project_info))
     
@@ -166,10 +165,11 @@ def get_project_rank():
         """
         )
     project_rank = cur.fetchall()
-    print(project_rank)
+
+
 
     project_rank = [(project[0], project[1].strftime('%Y.%m.%d')) for project in project_rank]
-    print(project_rank)
+    
     cur.close()
 
     return JSONResponse({'project_rank': project_rank})
@@ -209,7 +209,7 @@ def get_project_score(project_wallet_address: str):
     cur.close()
 
     if project_score is None:
-        return {'project_score': 'the project does not exist'}
+        return JSONResponse({'project_score': 'the project does not exist'}, status_code=404)
 
     return JSONResponse({'project_score': project_score[0]})
 
@@ -247,26 +247,40 @@ def get_project_github_statistic(project_wallet_address: str):
 
         
     if project_github_statistic is None:
-        return {'project_github_statistic': 'the project has no github repos'}
-
+        return JSONResponse({'project_github_statistic': 'the project has no github repos'}, status_code=404)
 
     keys = [desc[0] for desc in cur.description]
     project_github_statistic = dict(zip(keys, project_github_statistic))
 
     
-
     # get the all repo statistic
     cur.execute("""
-        SELECT
-            avg_total_commit_lines,
-            avg_commit_lines
-        FROM githuballreposmonthlysummary
+        WITH ranked AS (
+            SELECT 
+                monthly_total_commit_lines,
+                monthly_avg_commit_lines,
+                CUME_DIST() OVER (ORDER BY monthly_total_commit_lines) * 100 AS cdf_total_commit_lines,
+                CUME_DIST() OVER (ORDER BY monthly_avg_commit_lines) * 100 AS cdf_avg_commit_lines
+            FROM GithubReposMonthlySummary
+        )
+    SELECT 
+        (
+            SELECT cdf_total_commit_lines FROM ranked 
+            WHERE monthly_total_commit_lines >= g.avg_total_commit_lines 
+            ORDER BY monthly_total_commit_lines LIMIT 1
+        ) AS percentile_avg_total_commit_lines,
+        (
+            SELECT cdf_avg_commit_lines FROM ranked 
+            WHERE monthly_avg_commit_lines >= g.avg_commit_lines 
+            ORDER BY monthly_avg_commit_lines LIMIT 1
+        ) AS percentile_avg_commit_lines
+    FROM GithubAllReposMonthlySummary g;
     """)
 
     all_repo_statistic = cur.fetchone()
 
     if all_repo_statistic is None:
-        return {'project_github_statistic': 'the project has no github repos'}
+        return JSONResponse({'project_github_statistic': 'the project has no github repos'}, status_code=404)
 
     all_repo_statistic_keys = [desc[0] for desc in cur.description] 
     all_repo_statistic = dict(zip(all_repo_statistic_keys, all_repo_statistic))
@@ -278,7 +292,7 @@ def get_project_github_statistic(project_wallet_address: str):
         'all_repo': all_repo_statistic
     }
 
-    print(intergrated_statistic)
+
 
     cur.close()
 
@@ -290,7 +304,7 @@ def get_project_github_statistic(project_wallet_address: str):
 @ensure_db_connection
 def get_project_github_summary(project_wallet_address: str):
 
-    print(project_wallet_address)
+
 
     cur = CONN.cursor()
     cur.execute("""
@@ -305,7 +319,7 @@ def get_project_github_summary(project_wallet_address: str):
     project_github_summary = cur.fetchone()
 
     if project_github_summary is None:
-        return {'project_github_summary': 'the project has no github repos'}
+        return JSONResponse({'project_github_summary': 'the project has no github repos'}, status_code=404)
 
     summary_dict = dict(zip(keys, project_github_summary))
 
@@ -420,7 +434,7 @@ WHERE
     project_tweets_statistic = cur.fetchone()
 
     if project_tweets_statistic is None:
-        return {'project_tweets_statistic': 'the project has no tweets'}
+        return JSONResponse({'project_tweets_statistic': 'the project has no tweets'}, status_code=404)
 
     keys = [desc[0] for desc in cur.description]
     project_tweets_statistic = dict(zip(keys, project_tweets_statistic))
@@ -439,7 +453,8 @@ WHERE
     all_tweet_statistic = cur.fetchone()
 
     if all_tweet_statistic is None:
-        return {'project_tweets_statistic': 'the project has no tweets'}
+        return JSONResponse({'project_tweets_statistic': 'the project has no tweets'}, status_code=404)
+    
     all_tweet_statistic_keys = [desc[0] for desc in cur.description] 
     all_tweet_statistic = dict(zip(all_tweet_statistic_keys, all_tweet_statistic))
 
@@ -464,12 +479,12 @@ def get_project_tweets_summary(project_wallet_address: str):
     
     keys = [desc[0] for desc in cur.description]
 
-    project_tweets_summary = cur.fetchall()
+    project_tweets_summary = cur.fetchone()
 
     if project_tweets_summary is None:
-        return {'project_tweets_summary': 'the project has no tweets'}
+        return JSONResponse({'project_tweets_summary': 'the project has no tweets'}, status_code=404)
 
-    summary_dict = [dict(zip(keys, project)) for project in project_tweets_summary]
+    summary_dict = dict(zip(keys, project_tweets_summary))
 
     cur.close()
 
@@ -599,7 +614,7 @@ def get_project_near_txns_statistic(project_wallet_address: str):
     project_near_txns_statistic = cur.fetchone()
 
     if project_near_txns_statistic is None:
-        return {'project_near_txns_statistic': 'the project has no near txns'}
+        return JSONResponse({'project_near_txns_statistic': 'the project has no near txns'}, status_code=404)
 
 
     keys = [desc[0] for desc in cur.description]
@@ -620,7 +635,7 @@ def get_project_near_txns_statistic(project_wallet_address: str):
     all_near_txns_statistic = cur.fetchone()
 
     if all_near_txns_statistic is None:
-        return {'project_near_txns_statistic': 'the project has no near txns'}
+        return JSONResponse({'project_near_txns_statistic': 'the project has no near txns'}, status_code=404)
 
     all_near_txns_statistic_keys = [desc[0] for desc in cur.description] 
     all_near_txns_statistic = dict(zip(all_near_txns_statistic_keys, all_near_txns_statistic))
@@ -649,12 +664,12 @@ def get_project_near_txns_summary(project_wallet_address: str):
     
     keys = [desc[0] for desc in cur.description]
 
-    project_near_txns_summary = cur.fetchall()
+    project_near_txns_summary = cur.fetchone()
 
     if project_near_txns_summary is None:
-        return {'project_near_txns_summary': 'the project has no near txns'}
+        return JSONResponse({'project_near_txns_summary': 'the project has no near txns'}, status_code=404)
 
-    summary_dict = [dict(zip(keys, project)) for project in project_near_txns_summary]
+    summary_dict = dict(zip(keys, project_near_txns_summary))
 
     cur.close()
 
@@ -756,6 +771,7 @@ def get_project_near_txns_histo():
 @app.get("/project/{account}/githubrepos")
 @ensure_db_connection
 def get_project_github_repos(account: str):
+
     cur = CONN.cursor()
     cur.execute("""
         SELECT 
@@ -768,21 +784,25 @@ def get_project_github_repos(account: str):
             githubrepocommitactivitylog.commit_date
         from githubrepocommitactivitylog
         right join githubrepos on githubrepocommitactivitylog.github_repo_id = githubrepos.github_repo_id
-        WHERE project_wallet_address = %s
+        WHERE githubrepos.project_wallet_address = %s and githubrepocommitactivitylog.commit_date is not null
         """, (account,))
     
     keys = [desc[0] for desc in cur.description]
 
     project_github_repos = cur.fetchall()
+    #make the datetime object to string
+    project_github_repos = [list(project) for project in project_github_repos]
+    for project in project_github_repos:
+        project[6] = project[6].strftime('%Y.%m.%d')
 
-    if project_github_repos is None:
-        return {'project_github_repos': 'the project has no github repos'}
+    if not project_github_repos:
+        return JSONResponse({'project_github_repos': 'the project has no github repos'}, status_code=404)
 
     summary_dict = [dict(zip(keys, project)) for project in project_github_repos]
 
     cur.close()
 
-    return summary_dict
+    return JSONResponse(summary_dict, status_code=200)
 
 
 @app.get("/project/{account}/tweets")
@@ -807,8 +827,13 @@ def get_project_tweets(account: str):
 
     project_tweets = cur.fetchall()
 
-    if project_tweets is None:
-        return {'project_tweets': 'the project has no tweets'}
+    # make the datetime object to string
+    project_tweets = [list(project) for project in project_tweets]
+    for project in project_tweets:
+        project[6] = project[6].strftime('%Y.%m.%d')
+
+    if not project_tweets:
+        return JSONResponse({'project_tweets': 'the project has no tweets'}, status_code=404)
 
     summary_dict = [dict(zip(keys, project)) for project in project_tweets]
 
@@ -844,8 +869,9 @@ def get_project_near_txns(account: str):
 
     project_near_txns = cur.fetchall()
 
-    if project_near_txns is None:
-        return {'project_near_txns': 'the project has no near txns'}
+    if not project_near_txns:
+        print('project_near_txns', project_near_txns)
+        return JSONResponse({'project_near_txns': 'the project has no near txns'}, status_code=404)
 
     summary_dict = [dict(zip(keys, project)) for project in project_near_txns]
 
@@ -865,18 +891,18 @@ def get_github_report(account: str):
     project_report = cur.fetchone()
 
     if project_report is None:
-        return {'project_report': 'the project has no report'}
+        return JSONResponse({'github_report': 'the project has no report'}, status_code=404)
     
     project_report = project_report[0]
 
     if project_report['has_github'][0] == False:
-        return {'project_report': 'the project has no github report'}
+        return JSONResponse({'github_report': 'the project has no report'}, status_code=404)
     
     if project_report['github_activity_report'] is None:
-        return {'project_report': 'the project has no report'}
+        return JSONResponse({'github_report': 'the project has no report'}, status_code=404)
     
     if project_report is None:
-        return {'project_report': 'the project has no report'}
+        return JSONResponse({'github_report': 'the project has no report'}, status_code=404)
 
     project_report = project_report['github_activity_report'][0]
     # project_report = json.loads(project_report)
@@ -898,18 +924,18 @@ def get_tweets_report(account: str):
     project_report = cur.fetchone()
 
     if project_report is None:
-        return {'project_report': 'the project has no report'}
+        return JSONResponse({'twitter_report' : 'the project has no report'}, status_code=404)
     
     project_report = project_report[0]
 
     if project_report['has_twitter'][0] == False:
-        return {'project_report': 'the project has no tweets report'}
+        return JSONResponse({'twitter_report' : 'the project has no report'}, status_code=404)
     
     if project_report['twitter_activity_report'] is None:
-        return {'project_report': 'the project has no report'}
+        return JSONResponse({'twitter_report' : 'the project has no report'}, status_code=404)
     
     if project_report is None:
-        return {'project_report': 'the project has no report'}
+        return JSONResponse({'twitter_report' : 'the project has no report'}, status_code=404)
     
     project_report = project_report['twitter_activity_report'][0]
 
@@ -929,18 +955,18 @@ def get_near_txns_report(account: str):
     project_report = cur.fetchone()
 
     if project_report is None:
-        return {'project_report': 'the project has no report'}
+        return JSONResponse({'near_transaction_report' : 'the project has no report'}, status_code=404)
     
     project_report = project_report[0]
 
     if project_report['has_near_txns'][0] == False:
-        return {'project_report': 'the project has no near txns report'}
+        return JSONResponse({'near_transaction_report' : 'the project has no report'}, status_code=404)
     
     if project_report['near_txns_activity_report'] is None:
-        return {'project_report': 'the project has no report'}
+        return JSONResponse({'near_transaction_report' : 'the project has no report'}, status_code=404)
     
     if project_report is None:
-        return {'project_report': 'the project has no report'}
+        return JSONResponse({'near_transaction_report' : 'the project has no report'}, status_code=404)
     
     project_report = project_report['near_txns_activity_report'][0]
 
@@ -961,7 +987,7 @@ def get_overall_report(account: str):
     project_report = cur.fetchone()
 
     if project_report is None:
-        return {'project_report': 'the project has no report'}
+        return JSONResponse({'overall_project_report' : 'the project has no report'}, status_code=404)
     
     project_report = project_report[0]
 
@@ -970,6 +996,6 @@ def get_overall_report(account: str):
     cur.close()
 
     if project_report is None:
-        return {'project_report': 'the project has no report'}
+        return JSONResponse({'overall_project_report' : 'the project has no report'}, status_code=404)
     
     return JSONResponse(content=project_report)

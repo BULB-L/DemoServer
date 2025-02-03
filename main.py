@@ -439,16 +439,44 @@ WHERE
     keys = [desc[0] for desc in cur.description]
     project_tweets_statistic = dict(zip(keys, project_tweets_statistic))
 
-    # get the all repo statistic
-    cur.execute("""
-        SELECT
-            avg_tweet_count,
-            avg_tweet_likes,
-            avg_tweet_retweet,
-            avg_tweet_replies,
-            avg_tweet_watches
-        FROM xhandleallmonthlysummary
-    """)
+    # get the all repo statistic and percentile
+
+    percentile_sql = """
+    WITH ranked AS (
+    SELECT 
+        monthly_tweet_count,
+        monthly_avg_tweet_likes_count,
+        monthly_avg_tweet_reply_count,
+        monthly_avg_tweet_watch_count,
+        monthly_avg_tweet_retweet_count,
+        CUME_DIST() OVER (ORDER BY monthly_tweet_count) * 100 AS percentile_tweet_count,
+        CUME_DIST() OVER (ORDER BY monthly_avg_tweet_likes_count) * 100 AS percentile_tweet_likes,
+        CUME_DIST() OVER (ORDER BY monthly_avg_tweet_reply_count) * 100 AS percentile_tweet_replies,
+        CUME_DIST() OVER (ORDER BY monthly_avg_tweet_watch_count) * 100 AS percentile_tweet_watches,
+        CUME_DIST() OVER (ORDER BY monthly_avg_tweet_retweet_count) * 100 AS percentile_tweet_retweet
+    FROM XHandleMonthlySummary
+    )
+    SELECT 
+        (SELECT percentile_tweet_count FROM ranked 
+        WHERE monthly_tweet_count >= a.avg_tweet_count 
+        ORDER BY monthly_tweet_count LIMIT 1) AS percentile_avg_tweet_count,
+        (SELECT percentile_tweet_likes FROM ranked 
+        WHERE monthly_avg_tweet_likes_count >= a.avg_tweet_likes 
+        ORDER BY monthly_avg_tweet_likes_count LIMIT 1) AS percentile_avg_tweet_likes,
+        (SELECT percentile_tweet_replies FROM ranked 
+        WHERE monthly_avg_tweet_reply_count >= a.avg_tweet_replies 
+        ORDER BY monthly_avg_tweet_reply_count LIMIT 1) AS percentile_avg_tweet_replies,
+        (SELECT percentile_tweet_watches FROM ranked 
+        WHERE monthly_avg_tweet_watch_count >= a.avg_tweet_watches 
+        ORDER BY monthly_avg_tweet_watch_count LIMIT 1) AS percentile_avg_tweet_watches,
+        (SELECT percentile_tweet_retweet FROM ranked 
+        WHERE monthly_avg_tweet_retweet_count >= a.avg_tweet_retweet 
+        ORDER BY monthly_avg_tweet_retweet_count LIMIT 1) AS percentile_avg_tweet_retweet
+    FROM XHandleAllMonthlySummary a;
+    
+    """
+
+    cur.execute(percentile_sql)
 
     all_tweet_statistic = cur.fetchone()
 
@@ -620,17 +648,45 @@ def get_project_near_txns_statistic(project_wallet_address: str):
     keys = [desc[0] for desc in cur.description]
     project_near_txns_statistic = dict(zip(keys, project_near_txns_statistic))
 
-    # get the all repo statistic
-    cur.execute("""
-    SELECT 
-        AVG(total_inbound_transactions) AS avg_total_inbound_transactions,
-        AVG(total_outbound_transactions) AS avg_total_outbound_transactions,
-        AVG(avg_inbound_transaction_fee) AS all_avg_inbound_transaction_fee,
-        AVG(avg_outbound_transaction_fee) AS all_avg_outbound_transaction_fee
-    FROM 
-        wallettxnsmonthlysummary;
+    # get the all repo statistic and percentile
 
-    """)
+    percentile_sql = """
+    WITH ranked AS (
+    SELECT 
+        total_inbound_transactions,
+        total_outbound_transactions,
+        avg_inbound_transaction_fee,
+        avg_outbound_transaction_fee,
+        percent_rank() OVER (ORDER BY total_inbound_transactions) * 100 AS percentile_total_inbound_txns,
+        percent_rank() OVER (ORDER BY total_outbound_transactions) * 100 AS percentile_total_outbound_txns,
+        percent_rank() OVER (ORDER BY avg_inbound_transaction_fee) * 100 AS percentile_avg_inbound_txn_fee,
+        percent_rank() OVER (ORDER BY avg_outbound_transaction_fee) * 100 AS percentile_avg_outbound_txn_fee
+    FROM WalletTxnsMonthlySummary
+    )
+    SELECT 
+        (SELECT percentile_total_inbound_txns FROM ranked 
+        WHERE total_inbound_transactions >= a.avg_total_inbound_txns 
+        ORDER BY total_inbound_transactions LIMIT 1) AS percentile_avg_total_inbound_txns,
+        (SELECT percentile_total_outbound_txns FROM ranked 
+        WHERE total_outbound_transactions >= a.avg_total_outbound_txns 
+        ORDER BY total_outbound_transactions LIMIT 1) AS percentile_avg_total_outbound_txns,
+        (SELECT percentile_avg_inbound_txn_fee FROM ranked 
+        WHERE avg_inbound_transaction_fee >= a.avg_avg_inbound_txn_fee 
+        ORDER BY avg_inbound_transaction_fee LIMIT 1) AS percentile_avg_avg_inbound_txn_fee,
+        (SELECT percentile_avg_outbound_txn_fee FROM ranked 
+        WHERE avg_outbound_transaction_fee >= a.avg_avg_outbound_txn_fee 
+        ORDER BY avg_outbound_transaction_fee LIMIT 1) AS percentile_avg_avg_outbound_txn_fee
+    FROM (
+        SELECT 
+            AVG(total_inbound_transactions) AS avg_total_inbound_txns,
+            AVG(total_outbound_transactions) AS avg_total_outbound_txns,
+            AVG(avg_inbound_transaction_fee) AS avg_avg_inbound_txn_fee,
+            AVG(avg_outbound_transaction_fee) AS avg_avg_outbound_txn_fee
+        FROM WalletTxnsMonthlySummary
+        GROUP BY month
+    ) a;
+    """
+    cur.execute(percentile_sql)
 
     all_near_txns_statistic = cur.fetchone()
 
